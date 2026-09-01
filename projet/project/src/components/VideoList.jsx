@@ -43,6 +43,7 @@ export default function VideoList({ onFullscreenChange }) {
   const [visibleVideoDimensions, setVisibleVideoDimensions] = useState({ width: '100%', leftOffset: 0 }); // Largeur visible vidéo pour navbar desktop
   const [mobileCoverScale, setMobileCoverScale] = useState(1); // Zoom "cover" 16:9 en mobile pour éviter les bandes noires
   const [isSafariMobile, setIsSafariMobile] = useState(false); // Safari iOS (pour ajuster la barre de progression)
+  const [isSafariOnly, setIsSafariOnly] = useState(false); // Safari iOS pur (pas Chrome/Firefox/Ecosia) — spacer carrousel
   const [showTransitionOverlay, setShowTransitionOverlay] = useState(false); // Overlay au changement de vidéo (mobile 450ms, desktop 700ms pour masquer bandes paysage→portrait)
   const [mobileHideMiddlePlayOnTap, setMobileHideMiddlePlayOnTap] = useState(false); // Mobile : masquer middleplay dès le tap (avant l'événement play)
   const [hasVideoBeenStarted, setHasVideoBeenStarted] = useState(false); // Mobile : n'afficher la barre de contrôles qu'une fois la vidéo lancée (play ou pause)
@@ -530,9 +531,15 @@ export default function VideoList({ onFullscreenChange }) {
 
   // Détecter Safari ou Ecosia sur iOS uniquement (pas Chrome : CriOS) pour réduire la barre en mobile
   useEffect(() => {
-    const isIOS = /iP(ad|hone|od)/i.test(navigator.userAgent);
-    const isChromeIOS = navigator.userAgent.includes('CriOS');
+    const ua = navigator.userAgent;
+    const isIOS = /iP(ad|hone|od)/i.test(ua);
+    const isChromeIOS = ua.includes('CriOS');
     setIsSafariMobile(isIOS && !isChromeIOS);
+    setIsSafariOnly(
+      isIOS &&
+      /Safari/i.test(ua) &&
+      !/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|Ecosia/i.test(ua)
+    );
   }, []);
 
   // Calculer la largeur visible de la vidéo (zone sans bandes) + zoom cover 16:9 en mobile
@@ -2009,7 +2016,7 @@ export default function VideoList({ onFullscreenChange }) {
           <div
             style={{
               height: spacing.isMobile && spacing.carouselSpacingPercent
-                ? `${spacing.carouselSpacingPercent * 100}vh` // En mobile : utiliser un pourcentage de la hauteur d'écran
+                ? `${spacing.carouselSpacingPercent * 100}${isSafariOnly ? 'svh' : 'vh'}` // Safari iOS : svh (viewport visible) ; les autres : vh inchangé
                 : `${spacing.carouselSpacing}px`, // Desktop : espacement en pixels
               backgroundColor: 'transparent'
             }}
