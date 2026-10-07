@@ -317,9 +317,16 @@ export default function VideoList({ onFullscreenChange }) {
   useEffect(() => {
     const fetchVideos = async () => {
       try {
-        const response = await fetch("/videos.json");
-        if (!response.ok) throw new Error("Failed to fetch videos.");
-        const data = await response.json();
+        const response = await fetch("/api/videos");
+        let data;
+        if (response.ok) {
+          data = await response.json();
+        }
+        if (!Array.isArray(data)) {
+          const fallback = await fetch("/videos.json");
+          if (!fallback.ok) throw new Error("Failed to fetch videos.");
+          data = await fallback.json();
+        }
 
         const processedData = data.map((video) => {
           let videoUrl = video.url || video.video;

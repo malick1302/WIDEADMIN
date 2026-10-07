@@ -62,20 +62,23 @@ function fileToBase64(file) {
 }
 
 export async function uploadLocalImage(file) {
-  if (!import.meta.env.DEV) {
-    throw new Error(
-      'L’upload vers public/images fonctionne en local. En production, ajoute le fichier dans public/images puis indique son chemin.'
-    );
-  }
   const data = await fileToBase64(file);
-  const res = await fetch('/__dev/upload-image', {
+  const res = await fetch('/api/admin/upload', {
     method: 'POST',
+    credentials: 'include',
     headers: jsonHeaders,
     body: JSON.stringify({ filename: file.name, data }),
   });
   const payload = await res.json().catch(() => ({}));
   if (!res.ok || !payload.path) {
-    throw new Error(payload.error || 'Impossible d’enregistrer l’image dans public/images.');
+    throw new Error(payload.error || 'Impossible d’enregistrer l’image.');
+  }
+  if (import.meta.env.DEV) {
+    fetch('/__dev/upload-image', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ filename: file.name, data }),
+    }).catch(() => {});
   }
   return payload.path;
 }

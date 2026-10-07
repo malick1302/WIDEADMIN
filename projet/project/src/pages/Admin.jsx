@@ -9,6 +9,10 @@ const emptyVideo = {
   soustitre: '',
   description: '',
 };
+const emptyImage = {
+  alt: '',
+  url: '',
+};
 const FORM_FIELDS = [
   { key: 'title', label: 'Titre' },
   { key: 'url', label: 'URL Vimeo' },
@@ -20,15 +24,21 @@ export default function Admin() {
   const [session, setSession] = useState('loading');
   const [password, setPassword] = useState('');
   const [videos, setVideos] = useState([]);
+  const [images, setImages] = useState([]);
+  const [tab, setTab] = useState('projects');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [editingVideo, setEditingVideo] = useState(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(emptyVideo);
+  const [editingImage, setEditingImage] = useState(null);
+  const [creatingImage, setCreatingImage] = useState(false);
+  const [imageForm, setImageForm] = useState(emptyImage);
   const [dragIndex, setDragIndex] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const galleryFileInputRef = useRef(null);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -45,7 +55,9 @@ export default function Admin() {
   }, []);
 
   const loadLists = useCallback(async () => {
-    setVideos(await adminApi.videos());
+    const [nextVideos, nextImages] = await Promise.all([adminApi.videos(), adminApi.images()]);
+    setVideos(nextVideos);
+    setImages(nextImages);
   }, []);
 
   useEffect(() => {
@@ -71,7 +83,57 @@ export default function Admin() {
     setCreating(false);
     setEditingVideo(null);
     setForm(emptyVideo);
+    setCreatingImage(false);
+    setEditingImage(null);
+    setImageForm(emptyImage);
     setUploading(false);
+  };
+
+  const handleSaveImage = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy(true);
+    try {
+      const payload = editingImage
+        ? await adminApi.updateImage(editingImage.id, imageForm)
+        : await adminApi.createImage(imageForm);
+      await afterMutation(payload);
+      setNotice(editingImage ? 'Image mise à jour.' : 'Image ajoutée.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteImage = async (item) => {
+    if (!window.confirm(`Supprimer « ${item.alt} » ?`)) return;
+    setBusy(true);
+    try {
+      const payload = await adminApi.deleteImage(item.id);
+      await afterMutation(payload);
+      setNotice('Image supprimée.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const moveImage = async (index, direction) => {
+    const next = index + direction;
+    if (next < 0 || next >= images.length) return;
+    const ids = images.map((item) => item.id);
+    [ids[index], ids[next]] = [ids[next], ids[index]];
+    setBusy(true);
+    try {
+      const payload = await adminApi.reorderImages(ids);
+      await afterMutation(payload, false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleLogin = async (e) => {
@@ -168,11 +230,7 @@ export default function Admin() {
     try {
       const payload = await adminApi.publish();
       applyPayload(payload);
-      setNotice(
-        import.meta.env.DEV
-          ? 'videos.json mis à jour dans public/.'
-          : 'En prod, lance aussi npm run export-json puis redéploie.'
-      );
+      setNotice('Catalogue mis à jour.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -181,22 +239,41 @@ export default function Admin() {
   };
 
   const startCreate = () => {
+    setTab('projects');
     setCreating(true);
     setEditingVideo(null);
     setForm(emptyVideo);
+    setCreatingImage(false);
+    setEditingImage(null);
     setNotice('');
     setError('');
     setUploading(false);
   };
 
-  const handleImageUpload = async (file) => {
+  const startCreateImage = () => {
+    setTab('images');
+    setCreatingImage(true);
+    setEditingImage(null);
+    setImageForm(emptyImage);
+    setCreating(false);
+    setEditingVideo(null);
+    setNotice('');
+    setError('');
+    setUploading(false);
+  };
+
+  const handleImageUpload = async (file, kind = 'project') => {
     if (!file) return;
     setError('');
     setUploading(true);
     try {
       const publicPath = await uploadLocalImage(file);
-      setForm((prev) => ({ ...prev, thumbnail: publicPath }));
-      setNotice(`Image enregistrée dans public${publicPath}`);
+      if (kind === 'gallery') {
+        setImageForm((prev) => ({ ...prev, url: publicPath }));
+      } else {
+        setForm((prev) => ({ ...prev, thumbnail: publicPath }));
+      }
+      setNotice(`Image enregistrée : ${publicPath}`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -204,8 +281,30 @@ export default function Admin() {
     }
   };
 
+  const handleDropImage = async (dropIndex) => {
+    if (dragIndex === null || dragIndex === dropIndex) {
+      setDragIndex(null);
+      return;
+    }
+    const ids = images.map((item) => item.id);
+    const [moved] = ids.splice(dragIndex, 1);
+    ids.splice(dropIndex, 0, moved);
+    setDragIndex(null);
+    setBusy(true);
+    try {
+      const payload = await adminApi.reorderImages(ids);
+      await afterMutation(payload, false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const showForm = creating || editingVideo;
+  const showImageForm = creatingImage || editingImage;
   const imageValue = form.thumbnail || '';
+  const galleryImageValue = imageForm.url || '';
 
   if (session === 'loading') {
     return (
@@ -248,7 +347,7 @@ export default function Admin() {
         <div>
           <h1 style={{ ...titleStyle, marginBottom: 4 }}>WIDE admin</h1>
           <p style={hintStyle}>
-            Ajoute un projet avec sa miniature. L’image est copiée dans public/images, le projet est enregistré dans D1 et videos.json.
+            Projets et images de galerie. Les fichiers uploadés sont stockés sur Cloudflare et le catalogue public lit D1, en local comme en production.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -264,6 +363,25 @@ export default function Admin() {
       {error ? <p style={errorStyle}>{error}</p> : null}
       {notice ? <p style={noticeStyle}>{notice}</p> : null}
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <button
+          type="button"
+          onClick={() => setTab('projects')}
+          style={tab === 'projects' ? buttonStyle : ghostButtonStyle}
+        >
+          Projets
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('images')}
+          style={tab === 'images' ? buttonStyle : ghostButtonStyle}
+        >
+          Images
+        </button>
+      </div>
+
+      {tab === 'projects' ? (
+        <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <p style={{ ...hintStyle, margin: 0 }}>
           {videos.length} projet{videos.length > 1 ? 's' : ''} — glisser-déposer ou flèches pour classer.
@@ -302,7 +420,7 @@ export default function Admin() {
                 disabled={busy || uploading}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  handleImageUpload(file);
+                  handleImageUpload(file, 'project');
                   e.target.value = '';
                 }}
                 style={{ display: 'none' }}
@@ -321,7 +439,7 @@ export default function Admin() {
                 {uploading ? 'Envoi en cours…' : 'Parcourir mon ordinateur'}
               </button>
               <span style={{ fontSize: 12, color: '#494949', fontWeight: 300 }}>
-                Clique pour ouvrir le Finder. Le fichier sera copié dans public/images.
+                Le fichier est envoyé sur Cloudflare et fonctionne en production.
               </span>
             </div>
             {imageValue ? (
@@ -331,7 +449,7 @@ export default function Admin() {
               </div>
             ) : null}
             <label style={labelStyle}>
-              Chemin (si l’image est déjà dans /images)
+              Chemin (si l’image est déjà en ligne)
               <input
                 value={imageValue}
                 onChange={(e) => setForm((prev) => ({ ...prev, thumbnail: e.target.value }))}
@@ -400,6 +518,142 @@ export default function Admin() {
           </li>
         ))}
       </ul>
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <p style={{ ...hintStyle, margin: 0 }}>
+              {images.length} image{images.length > 1 ? 's' : ''} — glisser-déposer ou flèches pour classer.
+            </p>
+            <button type="button" onClick={startCreateImage} style={buttonStyle}>
+              Nouvelle image
+            </button>
+          </div>
+
+          {showImageForm ? (
+            <form
+              onSubmit={handleSaveImage}
+              style={{ ...cardStyle, width: '100%', maxWidth: 'none', marginBottom: 24 }}
+            >
+              <h2 style={sectionTitleStyle}>
+                {editingImage ? 'Modifier l’image' : 'Nouvelle image'}
+              </h2>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <label style={labelStyle}>
+                  Texte alternatif
+                  <input
+                    value={imageForm.alt || ''}
+                    onChange={(e) => setImageForm((prev) => ({ ...prev, alt: e.target.value }))}
+                    style={inputStyle}
+                    required
+                  />
+                </label>
+                <div style={labelStyle}>
+                  Fichier
+                  <input
+                    ref={galleryFileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif"
+                    disabled={busy || uploading}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      handleImageUpload(file, 'gallery');
+                      e.target.value = '';
+                    }}
+                    style={{ display: 'none' }}
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || uploading}
+                    onClick={() => galleryFileInputRef.current?.click()}
+                    style={{
+                      ...buttonStyle,
+                      width: '100%',
+                      textAlign: 'center',
+                      opacity: busy || uploading ? 0.6 : 1,
+                    }}
+                  >
+                    {uploading ? 'Envoi en cours…' : 'Parcourir mon ordinateur'}
+                  </button>
+                </div>
+                {galleryImageValue ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <img src={galleryImageValue} alt="" style={{ ...thumbStyle, visibility: 'visible' }} />
+                    <p style={{ ...hintStyle, margin: 0 }}>{galleryImageValue}</p>
+                  </div>
+                ) : null}
+                <label style={labelStyle}>
+                  Chemin
+                  <input
+                    value={galleryImageValue}
+                    onChange={(e) => setImageForm((prev) => ({ ...prev, url: e.target.value }))}
+                    style={inputStyle}
+                    placeholder="/images/ma-photo.png"
+                    required
+                  />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button type="submit" disabled={busy || uploading} style={buttonStyle}>
+                  {uploading ? 'Upload…' : 'Enregistrer'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setCreatingImage(false); setEditingImage(null); }}
+                  style={ghostButtonStyle}
+                >
+                  Annuler
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 40 }}>
+            {images.map((item, index) => (
+              <li
+                key={item.id}
+                draggable
+                onDragStart={() => setDragIndex(index)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleDropImage(index)}
+                style={rowStyle}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, flex: 1 }}>
+                  <span style={orderStyle}>{index + 1}</span>
+                  <img
+                    src={item.url}
+                    alt=""
+                    style={thumbStyle}
+                    onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <p style={rowTitleStyle}>{item.alt}</p>
+                    <p style={rowMetaStyle}>{item.url}</p>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button type="button" style={iconBtnStyle} disabled={busy || index === 0} onClick={() => moveImage(index, -1)}>↑</button>
+                  <button type="button" style={iconBtnStyle} disabled={busy || index === images.length - 1} onClick={() => moveImage(index, 1)}>↓</button>
+                  <button
+                    type="button"
+                    style={iconBtnStyle}
+                    onClick={() => {
+                      setEditingImage(item);
+                      setImageForm({ ...emptyImage, ...item });
+                      setCreatingImage(false);
+                    }}
+                  >
+                    Modifier
+                  </button>
+                  <button type="button" style={{ ...iconBtnStyle, color: '#8a3a3a' }} onClick={() => handleDeleteImage(item)}>
+                    Supprimer
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

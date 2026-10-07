@@ -13,5 +13,11 @@
       "database_id": "fcf40578-5e8e-4638-a773-a1f639940b7d",
       "migrations_dir": "migrations"
     }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "UPLOADS",
+      "id": "c9799c7de5a34687aa9171dbe10e79c9"
+    }
   ]
 }

@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "db:migrate": "wrangler d1 migrations apply wide-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply wide-db --remote",
+    "deploy": "wrangler deploy",
+    "cf:login": "wrangler login",
     "export-json": "node scripts/export-json.mjs",
     "export-json:remote": "node scripts/export-json.mjs --remote"
   },
